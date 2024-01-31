@@ -1,5 +1,4 @@
 import numpy as np
-import time
 import copy
 
 # Frequently used constants, populated in `main()`.
@@ -7,11 +6,32 @@ cells = [ (row, column) for row in range(1, 10) for column in range(1, 10) ]
 units = { cell: [] for cell in cells }
 peers = { }
 
-# Global variable to track the elapsed time since the start of the solution generation.
-# IMPORTANT: Ensure `start_time` is defined and used globally to prevent incorrect triggering of 
-# the time-out condition in `recursive_depth_first_search`, which could lead to an erroneous 
-# `INVALID_SOLUTION` return.
-start_time = time.time()
+# Populate the row and column units.
+for cell in cells:
+    row_unit = []
+    col_unit = []
+    for cell_iter in cells:
+        cell_on_the_same_row = cell_iter[0] == cell[0]
+        if cell_on_the_same_row:
+            row_unit.append(cell_iter)
+        cell_in_the_same_column = cell_iter[1] == cell[1]
+        if cell_in_the_same_column:
+            col_unit.append(cell_iter)
+    units[cell] += [row_unit, col_unit]
+
+# Populate the 3x3 box units.
+for row in range(1, 10, 3):
+    for col in range(1, 10, 3):
+        box_unit = [ (row+dx, col+dy) for dx in range(3) for dy in range(3) ]
+        for cell in box_unit:
+            units[cell].append(box_unit)
+
+# Populate peers.
+for cell in cells:
+    # Flatten and exclude the current cell.
+    flattened_units_of_a_cell = [ cell_iter for unit in units[cell] for cell_iter in unit if cell_iter != cell ]
+    # Convert into a set to enforce uniqueness and allow for O(1) lookups.
+    peers[cell] = set(flattened_units_of_a_cell)
 
 INVALID_SOLUTION = { cell: '-1' for cell in cells }
 ALL_AVAILABLE_DIGITS = '123456789'
@@ -25,66 +45,6 @@ class ContradictionException(Exception):
     under the current assumptions, necessitating backtracking or termination of the solving process.
     """
     pass
-
-
-def populate_units():
-    """
-    Populate the row, column, and 3x3 box units for each cell in a Sudoku grid.
-
-    A 'unit' of a cell is an element of the global `units` dict, where each key is a cell 
-    and each value is a list of three lists: all cells on the same row as the key cell, 
-    all cells in the same column, and all cells in the same standard 3x3 box of cells.
-    """
-    # Populate the row and column units.
-    for cell in cells:
-        row_unit = []
-        col_unit = []
-        for cell_iter in cells:
-            cell_on_the_same_row = cell_iter[0] == cell[0]
-            if cell_on_the_same_row:
-                row_unit.append(cell_iter)
-            cell_in_the_same_column = cell_iter[1] == cell[1]
-            if cell_in_the_same_column:
-                col_unit.append(cell_iter)
-        units[cell] += [row_unit, col_unit]
-
-    # Populate the 3x3 box units.
-    for row in range(1, 10, 3):
-        for col in range(1, 10, 3):
-            box_unit = [ (row+dx, col+dy) for dx in range(3) for dy in range(3) ]
-            for cell in box_unit:
-                units[cell].append(box_unit)
-
-
-def populate_peers():
-    """
-    Populate the peers for each cell in a Sudoku grid.
-
-    A 'peer' of a cell is an element of the global `peers` dict, where each key is a cell
-    and each value is a set of all cells that are in the same three units as the key cell.
-    Importantly, the key cell itself is excluded from the set.
-    """
-    for cell in cells:
-        # Flatten and exclude the current cell.
-        flattened_units_of_a_cell = [ cell_iter for unit in units[cell] for cell_iter in unit if cell_iter != cell ]
-        # Convert into a set to enforce uniqueness and allow for O(1) lookups.
-        peers[cell] = set(flattened_units_of_a_cell)
-
-
-def display_sudoku(np_array):
-    """
-    Display a Sudoku puzzle in a human-readable format.
-
-    Args:
-        `np_array` (numpy.ndarray): A 9x9 NumPy array representing the Sudoku puzzle.
-    """
-    horizontal_separator = '|' + '+'.join(['-------']*3) + '|'
-    for i, row in enumerate(np_array):
-        if (i % 3 == 0) and (i != 0):
-            print(horizontal_separator)
-        row_str = '| ' + ' | '.join(' '.join(str(cell) for cell in row[j:j+3]) for j in range(0, 9, 3)) + ' |'
-        print(row_str)
-    print()
 
 
 def convert_grid_to_np_array(grid):
@@ -169,14 +129,10 @@ def recursive_depth_first_search(grid):
         `grid` (dict): The solved grid, or INVALID_SOLUTION if no solution exists.
     """
     solution_is_found = all(len(grid[cell]) == 1 for cell in cells)
-    elapsed_time = time.time() - start_time
-    time_threshold_exceeded = elapsed_time >= 29.99
 
     # Base case that may terminate recursion early.
     if solution_is_found:
         return grid
-    elif time_threshold_exceeded:
-        return INVALID_SOLUTION
 
     # Define the Minimum Remaining Values and Least Constraining Values heuristics.
     mrv_cell = find_cell_with_min_remaining_values(grid)
@@ -377,75 +333,3 @@ def sudoku_solver(numpy_array):
 
     return numpy_array_solution
 
-
-def main():
-    global start_time
-
-    populate_units()
-    populate_peers()
-
-    difficulty = 'hard'
-    sudokus = np.load(f'data/{difficulty}_puzzle.npy')
-    sudokus_solutions = np.load(f'data/{difficulty}_solution.npy').astype(int)
-
-    print('Generating solutions...')
-
-    solving_times = []
-    incorrect_solutions_counter = 0
-    num_of_sudokus = len(sudokus)
-
-    sudoku_output_enabled = False
-    if sudoku_output_enabled:
-        test_n_times = 1
-    else:
-        test_n_times = 128
-
-    print(f'The test (difficulty "{difficulty}") will be run {test_n_times} time(s).', end='\n\n')
-
-    for n in range(test_n_times):
-        for i in range(num_of_sudokus):
-            sudoku = copy.deepcopy(sudokus[i])
-            if sudoku_output_enabled:
-                print(f'Sudoku number {i+1}:')
-                display_sudoku(sudoku)
-
-            # IMPORTANT: It is mandatory to use `time.time()` when testing, failure to do
-            # so may result in erroneous assignment of `INVALID_SOLUTION` to `solution`.
-            start_time = time.time()
-
-            solution = sudoku_solver(sudoku)
-
-            end_time = time.time()
-            solving_time = end_time - start_time
-            solving_times.append(solving_time)
-
-            if sudoku_output_enabled:
-                print(f'Generated solution (generated in {round(solving_time, 4)} seconds):')
-                display_sudoku(solution)
-                print('Actual solution:')
-                display_sudoku(sudokus_solutions[i])
-
-            if not np.array_equal(solution, sudokus_solutions[i]):
-                print('ERROR: The generated solution does not match the actual one.')
-                incorrect_solutions_counter += 1
-
-            if sudoku_output_enabled:
-                print('='*64, end='\n\n')
-
-        num_of_correct_solutions = num_of_sudokus - incorrect_solutions_counter
-        print(f'Test {n+1}/{test_n_times} completed.')
-        print(f'{num_of_correct_solutions}/{num_of_sudokus} solutions are correct.', end='\n\n')
-
-    average_time = round(sum(solving_times) / len(solving_times), 4)
-    max_time = round(max(solving_times), 4)
-    print(f'Average solving time: {average_time} seconds')
-    print(f'Maximum solving time: {max_time} seconds')
-
-
-if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        print('\nKEYBOARD INTERRUPT INITIATED.')
-    except Exception as e:
-        print(f'ERROR:\n{e}')
